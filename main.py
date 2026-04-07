@@ -108,3 +108,6 @@ if __name__ == '__main__':
     
     print("🚀 Servidor iniciado!")
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+
+
+# Deploy forçado em 07/04/2026 - 17:10
