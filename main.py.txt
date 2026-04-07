@@ -31,8 +31,6 @@ def enviar_telegram(mensagem):
 def verificar_sinais():
     global ultimo_sinal
     
-    # API do TradingView (pública)
-    # SOLUSDT na Binance, timeframe 1H
     url = "https://api.binance.com/api/v3/klines"
     params = {
         "symbol": "SOLUSDT",
@@ -44,29 +42,18 @@ def verificar_sinais():
         response = requests.get(url, params=params, timeout=10)
         data = response.json()
         
-        # Calcular EMA 5 e BB (21, 2)
         closes = [float(candle[4]) for candle in data]
         
         # EMA 5
         ema5 = sum(closes[-5:]) / 5
+        ema5_anterior = sum(closes[-6:-1]) / 5
         
         # SMA 21 (BB Central)
         sma21 = sum(closes[-21:]) / 21
         
-        # Desvio padrão
-        import statistics
-        desvio = statistics.stdev(closes[-21:])
-        
-        # Bandas
-        bb_superior = sma21 + (2 * desvio)
-        bb_inferior = sma21 - (2 * desvio)
-        
-        # Verificar cruzamento
         preco_atual = closes[-1]
-        preco_anterior = closes[-2]
-        ema5_anterior = sum(closes[-6:-1]) / 5
         
-        # Compra: EMA 5 cruza ACIMA da BB Central
+        # Compra: EMA 5 cruza ACIMA
         if ema5_anterior < sma21 and ema5 >= sma21:
             if ultimo_sinal != "COMPRA":
                 mensagem = f"""🟢 <b>SINAL DE COMPRA SOLUSDT</b>
@@ -74,14 +61,13 @@ def verificar_sinais():
 💰 Preço: {preco_atual:.2f}
 📈 EMA 5: {ema5:.2f}
 📊 BB Central: {sma21:.2f}
-⏰ Timeframe: 1H
-
-✅ EMA 5 cruzou ACIMA da BB Central"""
+⏰ Timeframe: 1H"""
                 enviar_telegram(mensagem)
                 ultimo_sinal = "COMPRA"
                 print(f"Compra enviada: {preco_atual}")
+                return "COMPRA"
         
-        # Venda: EMA 5 cruza ABAIXO da BB Central
+        # Venda: EMA 5 cruza ABAIXO
         elif ema5_anterior > sma21 and ema5 <= sma21:
             if ultimo_sinal != "VENDA":
                 mensagem = f"""🔴 <b>SINAL DE VENDA SOLUSDT</b>
@@ -89,21 +75,22 @@ def verificar_sinais():
 💰 Preço: {preco_atual:.2f}
 📈 EMA 5: {ema5:.2f}
 📊 BB Central: {sma21:.2f}
-⏰ Timeframe: 1H
-
-✅ EMA 5 cruzou ABAIXO da BB Central"""
+⏰ Timeframe: 1H"""
                 enviar_telegram(mensagem)
                 ultimo_sinal = "VENDA"
                 print(f"Venda enviada: {preco_atual}")
+                return "VENDA"
+        
+        return "Nenhum sinal"
         
     except Exception as e:
-        print(f"Erro ao verificar: {e}")
+        print(f"Erro: {e}")
+        return f"Erro: {e}"
 
 def loop_verificacao():
     while True:
         verificar_sinais()
-        # Verifica a cada 5 minutos
-        time.sleep(300)
+        time.sleep(300)  # 5 minutos
 
 @app.route('/')
 def home():
@@ -117,15 +104,13 @@ def teste():
 
 @app.route('/verificar')
 def verificar():
-    verificar_sinais()
-    return "Verificação manual executada!"
+    resultado = verificar_sinais()
+    return f"Verificação executada: {resultado}"
 
 if __name__ == '__main__':
-    # Inicia thread de verificação automática
     thread = threading.Thread(target=loop_verificacao)
     thread.daemon = True
     thread.start()
     
     print("🚀 Servidor iniciado!")
-    print("📱 Verificação automática a cada 5 minutos")
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
