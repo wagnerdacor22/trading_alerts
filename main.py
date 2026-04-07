@@ -14,17 +14,13 @@ ultimo_sinal = None
 
 def enviar_telegram(mensagem):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("❌ TOKEN ou CHAT_ID não configurados")
+        print("❌ TOKEN ou CHAT_ID não configurado")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": mensagem,
-        "parse_mode": "HTML"
-    }
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mensagem, "parse_mode": "HTML"}
     try:
         r = requests.post(url, json=payload, timeout=10)
-        print(f"Telegram: {r.status_code}")
+        print(f"Telegram status: {r.status_code}")
     except Exception as e:
         print(f"Erro Telegram: {e}")
 
@@ -59,6 +55,7 @@ def verificar_sinais():
 🕒 {datetime.now().strftime('%d/%m %H:%M')}"""
             enviar_telegram(msg)
             ultimo_sinal = "COMPRA"
+            return "COMPRA"
 
         elif sma5_ant > sma21 and sma5 <= sma21 and ultimo_sinal != "VENDA":
             msg = f"""🔴 <b>SINAL DE VENDA - SOLUSDT</b>
@@ -68,9 +65,13 @@ def verificar_sinais():
 🕒 {datetime.now().strftime('%d/%m %H:%M')}"""
             enviar_telegram(msg)
             ultimo_sinal = "VENDA"
+            return "VENDA"
+
+        return "Nenhum sinal novo"
 
     except Exception as e:
         print(f"Erro Binance: {e}")
+        return "Erro"
 
 def loop_verificacao():
     while True:
@@ -79,17 +80,17 @@ def loop_verificacao():
 
 @app.route('/')
 def home():
-    return "✅ Servidor SOLUSDT rodando no Railway!"
+    return "✅ <h1>Servidor de Sinais SOLUSDT - Rodando!</h1><br><a href='/verificar'>Verificar agora</a>"
 
 @app.route('/teste')
 def teste():
     enviar_telegram("🧪 Teste Railway - Servidor OK ✅")
-    return "Teste enviado!"
+    return "✅ Teste enviado ao Telegram!"
 
 @app.route('/verificar')
 def verificar():
-    verificar_sinais()
-    return "Verificação manual executada!"
+    resultado = verificar_sinais()
+    return f"✅ Verificação manual executada!<br>Resultado: <strong>{resultado}</strong>"
 
 if __name__ == '__main__':
     thread = threading.Thread(target=loop_verificacao, daemon=True)
