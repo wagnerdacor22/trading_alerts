@@ -14,123 +14,82 @@ ultimo_sinal = None
 
 def enviar_telegram(mensagem):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("❌ TELEGRAM_TOKEN ou TELEGRAM_CHAT_ID não configurados!")
+        print("❌ TOKEN ou CHAT_ID não configurados!")
         return None
-    
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": mensagem,
-        "parse_mode": "HTML"
-    }
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mensagem, "parse_mode": "HTML"}
     try:
-        response = requests.post(url, json=payload, timeout=10)
-        if response.status_code != 200:
-            print(f"❌ Erro Telegram: {response.text}")
+        r = requests.post(url, json=payload, timeout=10)
+        if r.status_code == 200:
+            print("✅ Telegram enviado com sucesso")
         else:
-            print("✅ Mensagem enviada para o Telegram")
-        return response.json()
+            print(f"❌ Telegram falhou: {r.text}")
     except Exception as e:
-        print(f"❌ Erro ao enviar Telegram: {e}")
-        return None
+        print(f"❌ Erro Telegram: {e}")
 
 def calcular_sma(closes, period):
-    if len(closes) < period:
-        return sum(closes) / len(closes)
-    return sum(closes[-period:]) / period
+    return sum(closes[-period:]) / period if len(closes) >= period else sum(closes) / len(closes)
 
 def verificar_sinais():
     global ultimo_sinal
-    
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Verificando sinais SOLUSDT...")
-    
-    url = "https://api.binance.com/api/v3/klines"
-    params = {
-        "symbol": "SOLUSDT",
-        "interval": "1h",
-        "limit": 100
-    }
-    
-    try:
-        response = requests.get(url, params=params, timeout=15)
-        response.raise_for_status()
-        data = response.json()
-        
-        closes = [float(candle[4]) for candle in data]
-        preco_atual = closes[-1]
-        
-        sma5_atual = calcular_sma(closes, 5)
-        sma5_anterior = calcular_sma(closes[:-1], 5)
-        sma21 = calcular_sma(closes, 21)
-        
-        print(f"Preço: {preco_atual:.2f} | SMA5: {sma5_atual:.2f} | SMA21: {sma21:.2f}")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Verificando SOLUSDT...")
 
-        # Sinal de COMPRA
-        if sma5_anterior < sma21 and sma5_atual >= sma21:
-            if ultimo_sinal != "COMPRA":
-                mensagem = f"""🟢 <b>SINAL DE COMPRA - SOLUSDT</b>
-💰 Preço: <code>{preco_atual:.2f}</code>
-📈 SMA 5: <code>{sma5_atual:.2f}</code>
-📊 SMA 21: <code>{sma21:.2f}</code>
-⏰ Timeframe: 1H
-🕒 {datetime.now().strftime('%d/%m/%Y %H:%M')}"""
-                enviar_telegram(mensagem)
-                ultimo_sinal = "COMPRA"
-                return "COMPRA"
+    try:
+        resp = requests.get("https://api.binance.com/api/v3/klines", 
+                           params={"symbol": "SOLUSDT", "interval": "1h", "limit": 100}, 
+                           timeout=15)
+        resp.raise_for_status()
+        closes = [float(x[4]) for x in resp.json()]
+        preco = closes[-1]
         
-        # Sinal de VENDA
-        elif sma5_anterior > sma21 and sma5_atual <= sma21:
-            if ultimo_sinal != "VENDA":
-                mensagem = f"""🔴 <b>SINAL DE VENDA - SOLUSDT</b>
-💰 Preço: <code>{preco_atual:.2f}</code>
-📈 SMA 5: <code>{sma5_atual:.2f}</code>
-📊 SMA 21: <code>{sma21:.2f}</code>
-⏰ Timeframe: 1H
-🕒 {datetime.now().strftime('%d/%m/%Y %H:%M')}"""
-                enviar_telegram(mensagem)
-                ultimo_sinal = "VENDA"
-                return "VENDA"
-        
-        return "Nenhum sinal novo"
-        
+        sma5 = calcular_sma(closes, 5)
+        sma5_ant = calcular_sma(closes[:-1], 5)
+        sma21 = calcular_sma(closes, 21)
+
+        print(f"Preço: {preco:.2f} | SMA5: {sma5:.2f} | SMA21: {sma21:.2f}")
+
+        if sma5_ant < sma21 and sma5 >= sma21 and ultimo_sinal != "COMPRA":
+            msg = f"""🟢 <b>SINAL DE COMPRA - SOLUSDT</b>
+💰 Preço: <code>{preco:.2f}</code>
+📈 SMA5: <code>{sma5:.2f}</code>
+📊 SMA21: <code>{sma21:.2f}</code>
+🕒 {datetime.now().strftime('%d/%m %H:%M')}"""
+            enviar_telegram(msg)
+            ultimo_sinal = "COMPRA"
+
+        elif sma5_ant > sma21 and sma5 <= sma21 and ultimo_sinal != "VENDA":
+            msg = f"""🔴 <b>SINAL DE VENDA - SOLUSDT</b>
+💰 Preço: <code>{preco:.2f}</code>
+📈 SMA5: <code>{sma5:.2f}</code>
+📊 SMA21: <code>{sma21:.2f}</code>
+🕒 {datetime.now().strftime('%d/%m %H:%M')}"""
+            enviar_telegram(msg)
+            ultimo_sinal = "VENDA"
+
     except Exception as e:
-        print(f"❌ Erro na API Binance: {e}")
-        return f"Erro: {e}"
+        print(f"❌ Erro: {e}")
 
 def loop_verificacao():
-    print("🔄 Thread de verificação iniciada (a cada 60 segundos)")
     while True:
         verificar_sinais()
         time.sleep(60)
 
 @app.route('/')
 def home():
-    return f"""
-    <h1>✅ Servidor de Sinais SOLUSDT - Rodando!</h1>
-    <p><strong>Último sinal:</strong> {ultimo_sinal or 'Nenhum ainda'}</p>
-    <p><a href='/verificar'>🔄 Verificar sinais agora</a></p>
-    <p><a href='/teste'>🧪 Enviar teste Telegram</a></p>
-    """
+    return "✅ <h1>Servidor SOLUSDT rodando no Railway!</h1>"
 
 @app.route('/teste')
 def teste():
-    enviar_telegram("🧪 <b>Teste de conexão!</b>\nServidor funcionando normalmente no Railway ✅")
-    return "Teste enviado ao Telegram!"
+    enviar_telegram("🧪 Teste do Railway - Servidor OK!")
+    return "Teste enviado!"
 
 @app.route('/verificar')
 def verificar():
-    resultado = verificar_sinais()
-    return f"""
-    ✅ Verificação manual executada!<br><br>
-    Resultado: <strong>{resultado}</strong><br>
-    Último sinal: <strong>{ultimo_sinal or 'Nenhum'}</strong>
-    """
+    verificar_sinais()
+    return "Verificação manual feita!"
 
 if __name__ == '__main__':
-    # Inicia a thread de verificação
     thread = threading.Thread(target=loop_verificacao, daemon=True)
     thread.start()
-    
-    print("🚀 Servidor Flask iniciado!")
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    print("🚀 Servidor iniciado!")
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
