@@ -1,5 +1,5 @@
 flask
 requests
 pandas
-pandas-ta
+numpy
 gunicorn
