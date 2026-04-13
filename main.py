@@ -3,6 +3,7 @@ import time
 import threading
 import requests
 import pandas as pd
+import pandas_ta as ta
 from flask import Flask
 from datetime import datetime
 
@@ -28,7 +29,7 @@ def logica_do_bot():
     agora = datetime.now().strftime('%H:%M:%S')
     
     try:
-        # 1. Busca os dados de 1 hora (1h)
+        # 1. Busca dados de 1 hora
         url = "https://api.binance.com/api/v3/klines"
         params = {"symbol": "SOLUSDT", "interval": "1h", "limit": 100} 
         resp = requests.get(url, params=params, timeout=10)
@@ -40,62 +41,70 @@ def logica_do_bot():
         df = pd.DataFrame(dados, columns=['ts', 'open', 'high', 'low', 'close', 'vol', 'ct', 'qa', 'nt', 'tb', 'tq', 'i'])
         df['close'] = df['close'].astype(float)
 
-        # 2. Cálculos das Médias Móveis (SMA)
-        # O cálculo usa as velas de 1h, mas o último valor (índice -1) 
-        # atualiza em tempo real conforme o preço mexe agora.
+        # 2. Cálculos das Médias Simples (SMA)
         df['sma5'] = df['close'].rolling(window=5).mean()
         df['sma21'] = df['close'].rolling(window=21).mean()
 
+        # 3. Cálculo do MACD (6, 15, 1)
+        # fast=6, slow=15, signal=1
+        macd = ta.macd(df['close'], fast=6, slow=15, signal=1)
+        # O pandas_ta gera nomes específicos para as colunas:
+        df['macd'] = macd['MACD_6_15_1']
+        df['macd_sinal'] = macd['MACDs_6_15_1']
+
+        # Valores Atuais
         atual_sma5 = df['sma5'].iloc[-1]
         atual_sma21 = df['sma21'].iloc[-1]
+        atual_macd = df['macd'].iloc[-1]
+        atual_macd_sinal = df['macd_sinal'].iloc[-1]
+        
         preco_atual = df['close'].iloc[-1]
 
-        status = f"Preço: ${preco_atual:.2f} | SMA5: {atual_sma5:.2f} | SMA21: {atual_sma21:.2f}"
+        status = f"Preço: ${preco_atual:.2f} | SMA5: {atual_sma5:.2f} | SMA21: {atual_sma21:.2f} | MACD: {atual_macd:.2f}"
         print(f"[{agora}] {status}", flush=True)
 
-        # 3. Lógica de Cruzamento "No Momento"
-        # Se SMA5 ficar maior que SMA21 agora, envia COMPRA
-        if atual_sma5 > atual_sma21 and ultimo_sinal != "COMPRA":
-            msg = f"🟢 <b>SOL/USDT (1H): COMPRA INSTANTÂNEA</b>\n💰 Preço: {preco_atual:.2f}\n📈 SMA5 ultrapassou a SMA21 agora!"
-            enviar_telegram(msg)
-            ultimo_sinal = "COMPRA"
+        # 4. Lógica de Cruzamento Duplo (Médias + MACD)
         
-        # Se SMA5 ficar menor que SMA21 agora, envia VENDA
-        elif atual_sma5 < atual_sma21 and ultimo_sinal != "VENDA":
-            msg = f"🔴 <b>SOL/USDT (1H): VENDA INSTANTÂNEA</b>\n💰 Preço: {preco_atual:.2f}\n📉 SMA5 caiu abaixo da SMA21 agora!"
-            enviar_telegram(msg)
-            ultimo_sinal = "VENDA"
+        # CONDIÇÃO DE COMPRA:
+        # SMA5 acima da SMA21 E MACD acima da linha de sinal (ou acima de zero)
+        if atual_sma5 > atual_sma21 and atual_macd > atual_macd_sinal:
+            if ultimo_sinal != "COMPRA":
+                msg = f"🟢 <b>SOL/USDT (1H): COMPRA CONFIRMADA</b>\n💰 Preço: {preco_atual:.2f}\n📊 SMA5 > SMA21\n📈 MACD (6,15,1) em Alta!"
+                enviar_telegram(msg)
+                ultimo_sinal = "COMPRA"
+        
+        # CONDIÇÃO DE VENDA:
+        # SMA5 abaixo da SMA21 E MACD abaixo da linha de sinal
+        elif atual_sma5 < atual_sma21 and atual_macd < atual_macd_sinal:
+            if ultimo_sinal != "VENDA":
+                msg = f"🔴 <b>SOL/USDT (1H): VENDA CONFIRMADA</b>\n💰 Preço: {preco_atual:.2f}\n📊 SMA5 < SMA21\n📉 MACD (6,15,1) em Baixa!"
+                enviar_telegram(msg)
+                ultimo_sinal = "VENDA"
             
         return status
 
     except Exception as e:
-        print(f"❌ Erro: {e}")
+        print(f"❌ Erro na lógica: {e}")
         return f"Erro: {str(e)}"
 
 # --- MONITORAMENTO ---
 def monitor_loop():
-    # O bot checa a cada 60 segundos, independente da vela de 1h ter fechado ou não
-    print("🤖 Monitoramento Instantâneo 1H (SMA5 vs SMA21) Iniciado")
+    print("🤖 Bot iniciado: Cruzamento SMA + MACD (6,15,1)")
     while True:
         logica_do_bot()
         time.sleep(60) 
 
 threading.Thread(target=monitor_loop, daemon=True).start()
 
-# --- ROTAS ---
+# --- ROTAS FLASK ---
 @app.route('/')
 def home():
-    return f"Bot SMA 1H Ativo. Status: {ultimo_sinal if ultimo_sinal else 'Aguardando Cruzamento'}"
+    return f"Bot Ativo (Filtro MACD 6,15,1). Último sinal: {ultimo_sinal}"
 
 @app.route('/verificar')
 def verificar():
     resultado = logica_do_bot()
-    return f"<h2>Análise Atual (1h):</h2><p>{resultado}</p>"
-
-@app.route('/teste')
-def teste():
-    enviar_telegram("🧪 Teste: O bot está te ouvindo e monitorando o gráfico de 1H!")
-    return "✅ Teste enviado!"
+    return f"<h2>Status Atual:</h2><p>{resultado}</p>"
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
